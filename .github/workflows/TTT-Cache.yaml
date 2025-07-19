@@ -66,6 +66,13 @@ jobs:
           sudo add-apt-repository universe || true
           sudo apt-get update -y
           sudo apt-get install -y ccache build-essential
+      - name: 检查并准备工作目录
+        run: |
+          echo "当前用户：$(whoami)"
+          ls -ld /mnt /mnt/workdir /mnt/workdir/openwrt22-arm || true
+          sudo mkdir -p /mnt/workdir/openwrt22-arm
+          sudo chown -R $(whoami):$(whoami) /mnt/workdir/openwrt22-arm
+          ls -ld /mnt/workdir/openwrt22-arm
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
