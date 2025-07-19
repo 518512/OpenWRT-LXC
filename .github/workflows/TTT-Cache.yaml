@@ -56,21 +56,17 @@ jobs:
       fail-fast: false  # 禁止快速失败，所有任务都会执行完
 
     steps:
-      - name: 设置环境变量和准备工作目录 🛠️
+      - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/*
-          sudo timedatectl set-timezone "$TZ"
-          sudo mkdir -p /mnt/workdir/${{ matrix.target.branch }}
-          sudo chown $USER:$GROUPS /mnt/workdir/${{ matrix.target.branch }}
-          echo "FILE_DATE2=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
-
-      - name: ☁️ 安装编译缓存及依赖
-        run: |
+          sudo rm -f /etc/apt/sources.list.d/*.list
+          echo "deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list
+          sudo apt-get clean
           sudo apt-get update -y
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository universe || true
           sudo apt-get update -y
           sudo apt-get install -y ccache build-essential
+
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
