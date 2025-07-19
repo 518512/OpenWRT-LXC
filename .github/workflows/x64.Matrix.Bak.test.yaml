@@ -57,11 +57,32 @@ jobs:
           # 生成版本日志文件
           git show -s --date=short --format="OpenWRT v${{ matrix.target.version }} 更新记录%nAuthor: %an%nDate: %cd%nCommit: %s%nCommit hash: %H%n" > $GITHUB_WORKSPACE/version-info/${{ matrix.target.branch }}/${{ matrix.target.branch }}.version.txt
 
-      - name: Update & install feeds
+      - name: Update & install feeds (with retry)
         run: |
           cd /mnt/workdir/openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+
+          retry() {
+            local max_attempts=5
+            local delay=10
+            local attempt=1
+
+            while true; do
+              echo "Attempt $attempt: ./scripts/feeds update -a"
+              ./scripts/feeds update -a && break
+              if [ $attempt -ge $max_attempts ]; then
+              echo "❌ feeds update failed after $max_attempts attempts"
+              exit 1
+              fi
+              attempt=$((attempt + 1))
+              echo "Retrying in $delay seconds..."
+              sleep $delay
+              done
+              }
+
+              retry
+
+              # install feeds 不加 retry，通常不会失败，如有需要可仿照添加
+              ./scripts/feeds install -a
 
       - name: Load custom config and patch
         run: |
