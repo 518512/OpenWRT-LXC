@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Matrix 2-Release  
+name: OpenWrt x64/arm Cache 2-Release  
 permissions: write-all
 
 on:
@@ -21,7 +21,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    fail-fast: false  # 禁止快速失败，所有任务都会执行完
     strategy:
       matrix:
         target:
@@ -54,6 +53,7 @@ jobs:
             config: OpenWRT/v22.arm64.mini.config
             version: "22.03"
             platform-version: "Arm 22.03"
+      fail-fast: false  # 禁止快速失败，所有任务都会执行完
 
     steps:
       - name: 设置环境变量和准备工作目录 🛠️
