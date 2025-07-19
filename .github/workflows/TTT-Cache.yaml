@@ -69,11 +69,24 @@ jobs:
 
       - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
         run: |
+          sudo rm -rf /etc/apt/sources.list.d/*
+          echo "deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list
+          sudo apt-get clean
           sudo apt-get update -y
+
+          # 确认安装 add-apt-repository 工具
           sudo apt-get install -y software-properties-common
+
+          # 明确添加 universe 组件（有时需要更新 sources.list 后重做）
           sudo add-apt-repository universe || true
+
+          # 再次更新
           sudo apt-get update -y
-          sudo apt-get install -y ccache build-essential
+
+          # 安装软件包
+          sudo apt-get install -y ccache build-essential || \
+              (echo "尝试使用apt-get install -y build-essential ccache失败，检查Ubuntu版本和源配置" && exit 1)
+
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
