@@ -137,7 +137,7 @@ jobs:
           cp "${{ matrix.target.config }}" "$BUILDROOT/openwrt/.config"
           chmod +x $GITHUB_WORKSPACE/custom.sh
           cd "$BUILDROOT/openwrt"
-          $GITHUB_WORKSPACE/custom.sh
+          $GITHUB_WORKSPACE//OpenWRT/custom.sh
 
       - name: 设置 ccache 环境变量 ⚙️
         run: |
