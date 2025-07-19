@@ -119,7 +119,7 @@ jobs:
         run: |
           [ -e files ] && mv files /mnt/workdir/${{ matrix.target.name }}/openwrt/files
           [ -e banner ] && mv banner /mnt/workdir/openwrt/package/base-files/files/etc/banner
-          [ -e ${{ matrix.target.config }} ] && mv ${{ matrix.target.config }} /mnt/workdir/openwrt/.config
+          [ -e ${{ matrix.target.config }} ] && mv ${{ matrix.target.config }} /mnt/workdir/${{ matrix.target.name }}/openwrt/.config
           chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
           cd /mnt/workdir/${{ matrix.target.name }}/openwrt
           $GITHUB_WORKSPACE/OpenWRT/custom.sh
