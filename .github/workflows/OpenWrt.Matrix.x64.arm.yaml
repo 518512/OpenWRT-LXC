@@ -205,7 +205,7 @@ jobs:
       - name: Upload version info (artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: VersionInfo-${{ matrix.target.branch }}
+          name: VersionInfo-${{ matrix.target.name }}
           path: ${{ github.workspace }}/version-info/${{ matrix.target.branch }}/*.version.txt
 
   release:
