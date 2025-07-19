@@ -66,13 +66,18 @@ jobs:
           sudo add-apt-repository universe || true
           sudo apt-get update -y
           sudo apt-get install -y ccache build-essential
-      - name: 检查并准备工作目录
+
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Setup build environment
         run: |
-          echo "当前用户：$(whoami)"
-          ls -ld /mnt /mnt/workdir /mnt/workdir/openwrt22-arm || true
-          sudo mkdir -p /mnt/workdir/openwrt22-arm
-          sudo chown -R $(whoami):$(whoami) /mnt/workdir/openwrt22-arm
-          ls -ld /mnt/workdir/openwrt22-arm
+          sudo rm -rf /etc/apt/sources.list.d/*
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /mnt/workdir
+          # 使用 whoami 确保正确获取当前用户名
+          sudo chown -R $(whoami):$(whoami) /mnt/workdir
+          echo "FILE_DATE2=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
