@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Cache 2-Release  
+name: OpenWrt x64/arm Cache 2-Release 🚀
 permissions: write-all
 
 on:
@@ -22,6 +22,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - name: openwrt24-x64
@@ -53,7 +54,6 @@ jobs:
             config: OpenWRT/v22.arm64.mini.config
             version: "22.03"
             platform-version: "Arm 22.03"
-      fail-fast: false  # 禁止快速失败，所有任务都会执行完
 
     steps:
       - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
@@ -66,7 +66,6 @@ jobs:
           sudo add-apt-repository universe || true
           sudo apt-get update -y
           sudo apt-get install -y ccache build-essential
-
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
@@ -93,18 +92,15 @@ jobs:
             echo "✅ 源码已存在，跳过克隆：$TARGET_DIR"
           fi
 
-          # 创建版本信息目录
           mkdir -p "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}"
-
           cd "$TARGET_DIR"
           git show -s --date=short --format="🔖 版本: ${{ matrix.target.name }} / 分支: ${{ matrix.target.branch }}%n👤 Author: %an%n📅 Date: %cd%n🧾 Commit: %s%n🔗 Hash: %H%n" \
             > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
         shell: bash
 
-
       - name: 更新并安装 feeds（带重试机制） 🔄
         run: |
-          cd /mnt/workdir/${{ matrix.target.branch }}/openwrt
+          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
           retry() {
             local max_attempts=5
             local delay=10
@@ -125,11 +121,11 @@ jobs:
 
       - name: 载入自定义配置和补丁 🧩
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.branch }}"
+          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
           cp "${{ matrix.target.config }}" "$BUILDROOT/openwrt/.config"
-          chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
+          chmod +x $GITHUB_WORKSPACE/custom.sh
           cd "$BUILDROOT/openwrt"
-          $GITHUB_WORKSPACE/OpenWRT/custom.sh
+          $GITHUB_WORKSPACE/custom.sh
 
       - name: 设置 ccache 环境变量 ⚙️
         run: |
@@ -139,7 +135,7 @@ jobs:
 
       - name: 下载软件包 📥
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.branch }}"
+          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
           cd "$BUILDROOT/openwrt"
           make defconfig
           make download -j$(nproc)
@@ -154,7 +150,7 @@ jobs:
         id: compile
         continue-on-error: true
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.branch }}"
+          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
           cd "$BUILDROOT/openwrt"
           make -j$(nproc) || make -j1 || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
@@ -174,7 +170,7 @@ jobs:
       - name: 重命名并复制固件（主Release） 📦
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         run: |
-          cd /mnt/workdir/${{ matrix.target.branch }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${ORIGINAL#*-}"
           cp "$ORIGINAL" "$NEWNAME"
@@ -199,7 +195,7 @@ jobs:
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         run: |
           mkdir -p $GITHUB_WORKSPACE/renamed
-          cd /mnt/workdir/${{ matrix.target.branch }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${{ env.FILE_DATE2 }}-${ORIGINAL#*${{ matrix.target.version }}-}"
           cp "$ORIGINAL" "$GITHUB_WORKSPACE/renamed/$NEWNAME"
@@ -229,8 +225,8 @@ jobs:
       - name: 上传版本信息文件到Artifact 📝
         uses: actions/upload-artifact@v4
         with:
-          name: VersionInfo-${{ matrix.target.branch }}
-          path: ${{ github.workspace }}/version-info/${{ matrix.target.branch }}/*.version.txt
+          name: VersionInfo-${{ matrix.target.name }}
+          path: ${{ github.workspace }}/version-info/${{ matrix.target.name }}/*.version.txt
 
   release:
     needs: build
@@ -271,7 +267,7 @@ jobs:
             ${{ env.ALL_VERSION_INFO }}
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN3 }}
-      
+
       - name: 上传主Release日志 🚩
         if: ${{ env.UPLOAD_RELEASE == 'true' }}
         uses: softprops/action-gh-release@v1
