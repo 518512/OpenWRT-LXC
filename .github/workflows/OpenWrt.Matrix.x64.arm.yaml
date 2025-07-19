@@ -15,8 +15,8 @@ env:
   REPO_URL: https://github.com/openwrt/openwrt
   TZ: Asia/Shanghai
   UPLOAD_RELEASE: true
-  PRODUCT_NAME: X86_X64_Matrix
-  PRODUCT_NAME_Bak: X86_X64_Matrix_Bak
+  PRODUCT_NAME: OpenWRT_Matrix
+  PRODUCT_NAME_Bak: OpenWRT_Matrix_Bak
 
 jobs:
   build:
