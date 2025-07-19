@@ -126,7 +126,7 @@ jobs:
 
       - name: Load custom config and patch
         run: |
-          [ -e files ] && mv files /mnt/workdir/openwrt/files
+          [ -e files ] && mv files /mnt/workdir/${{ matrix.target.name }}/openwrt/files
           [ -e banner ] && mv banner /mnt/workdir/openwrt/package/base-files/files/etc/banner
           [ -e ${{ matrix.target.config }} ] && mv ${{ matrix.target.config }} /mnt/workdir/openwrt/.config
           chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
