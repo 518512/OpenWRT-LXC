@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Cache 2-Release 🚀
+name: OpenWrt x64/arm Cache 2-Release   
 permissions: write-all
 
 on:
@@ -22,7 +22,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         target:
           - name: openwrt24-x64
@@ -54,19 +53,9 @@ jobs:
             config: OpenWRT/v22.arm64.mini.config
             version: "22.03"
             platform-version: "Arm 22.03"
+      fail-fast: false
 
     steps:
-      - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/*.list
-          echo "deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list
-          sudo apt-get clean
-          sudo apt-get update -y
-          sudo apt-get install -y software-properties-common
-          sudo add-apt-repository universe || true
-          sudo apt-get update -y
-          sudo apt-get install -y ccache build-essential
-
       - name: Checkout source
         uses: actions/checkout@v3
 
@@ -75,9 +64,16 @@ jobs:
           sudo rm -rf /etc/apt/sources.list.d/*
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /mnt/workdir
-          # 使用 whoami 确保正确获取当前用户名
           sudo chown -R $(whoami):$(whoami) /mnt/workdir
           echo "FILE_DATE2=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
+
+      - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository universe || true
+          sudo apt-get update -y
+          sudo apt-get install -y ccache build-essential
 
       - name: 缓存 ccache 以加速编译 ⚡
         uses: actions/cache@v3
@@ -105,6 +101,7 @@ jobs:
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}"
+
           cd "$TARGET_DIR"
           git show -s --date=short --format="🔖 版本: ${{ matrix.target.name }} / 分支: ${{ matrix.target.branch }}%n👤 Author: %an%n📅 Date: %cd%n🧾 Commit: %s%n🔗 Hash: %H%n" \
             > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
@@ -112,7 +109,8 @@ jobs:
 
       - name: 更新并安装 feeds（带重试机制） 🔄
         run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
+          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
+          cd "$BUILDROOT/openwrt"
           retry() {
             local max_attempts=5
             local delay=10
@@ -135,9 +133,9 @@ jobs:
         run: |
           BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
           cp "${{ matrix.target.config }}" "$BUILDROOT/openwrt/.config"
-          chmod +x $GITHUB_WORKSPACE/custom.sh
+          chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
           cd "$BUILDROOT/openwrt"
-          $GITHUB_WORKSPACE//OpenWRT/custom.sh
+          $GITHUB_WORKSPACE/OpenWRT/custom.sh
 
       - name: 设置 ccache 环境变量 ⚙️
         run: |
