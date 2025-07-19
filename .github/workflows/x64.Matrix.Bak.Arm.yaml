@@ -52,79 +52,32 @@ jobs:
           echo "FILE_DATE2=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
       
       - name: Clone OpenWrt source
+        working-directory: /mnt/workdir
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          TARGET_DIR="$BUILDROOT/openwrt"
+          git clone $REPO_URL -b ${{ matrix.target.branch }} openwrt
+          mkdir -p $GITHUB_WORKSPACE/version-info/${{ matrix.target.branch }}
+          cd openwrt
+          # 生成版本日志文件
+          git show -s --date=short --format="OpenWRT v${{ matrix.target.version }} 更新记录%nAuthor: %an%nDate: %cd%nCommit: %s%nCommit hash: %H%n" > $GITHUB_WORKSPACE/version-info/${{ matrix.target.branch }}/${{ matrix.target.branch }}.version.txt
 
-          echo "🌀 正在克隆 OpenWrt 源码..."
-          echo "REPO_URL = $REPO_URL"
-          echo "BRANCH   = ${{ matrix.target.branch }}"
-          echo "CLONE TO = $TARGET_DIR"
-
-          mkdir -p "$BUILDROOT"
-          cd "$BUILDROOT"
-
-          echo "📁 当前工作目录：$(pwd)"
-          echo "🔍 当前目录内容："
-          ls -al
-
-          git clone "$REPO_URL" -b "${{ matrix.target.branch }}" openwrt
-          CLONE_STATUS=$?
-
-          if [ $CLONE_STATUS -ne 0 ]; then
-            echo "❌ git clone 失败，退出。请检查仓库地址或分支是否正确。"
-            exit 1
-          fi
-
-          echo "✅ 克隆成功，确认 openwrt 目录存在："
-          ls -al "$TARGET_DIR"
-
-          # 版本信息保存
-          mkdir -p "$GITHUB_WORKSPACE/version-info/${{ matrix.target.branch }}"
-          cd "$TARGET_DIR"
-          git show -s --date=short --format="OpenWrt v${{ matrix.target.version }} 更新记录%nAuthor: %an%nDate: %cd%nCommit: %s%nCommit hash: %H%n" \
-          > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.branch }}/${{ matrix.target.branch }}.version.txt"
-
-
-      - name: Update & install feeds (with retry)
+      - name: Update & install feeds
         run: |
           cd /mnt/workdir/openwrt
-
-          retry() {
-            local max_attempts=5
-            local delay=10
-            local attempt=1
-
-            while true; do
-              echo "Attempt $attempt: ./scripts/feeds update -a"
-              ./scripts/feeds update -a && break
-              if [ $attempt -ge $max_attempts ]; then
-              echo "❌ feeds update failed after $max_attempts attempts"
-              exit 1
-              fi
-              attempt=$((attempt + 1))
-              echo "Retrying in $delay seconds..."
-              sleep $delay
-              done
-              }
-
-              retry
-
-              # install feeds 不加 retry，通常不会失败，如有需要可仿照添加
-              ./scripts/feeds install -a
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: Load custom config and patch
         run: |
           [ -e files ] && mv files /mnt/workdir/openwrt/files
           [ -e banner ] && mv banner /mnt/workdir/openwrt/package/base-files/files/etc/banner
           [ -e ${{ matrix.target.config }} ] && mv ${{ matrix.target.config }} /mnt/workdir/openwrt/.config
-          chmod +x $GITHUB_WORKSPACE/LOpenWRT/custom.sh
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
+          chmod +x OpenWRT/custom.sh
+          cd /mnt/workdir/openwrt
           $GITHUB_WORKSPACE/OpenWRT/custom.sh
 
       - name: Download packages
         run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
+          cd /mnt/workdir/openwrt
           make defconfig
           make download -j$(nproc)
           find dl -size -1024c -exec rm -f {} \;
@@ -136,7 +89,7 @@ jobs:
       - name: Compile firmware
         id: compile
         run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
+          cd /mnt/workdir/openwrt
           make -j$(nproc) || make -j1 || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
 
@@ -148,7 +101,7 @@ jobs:
       - name: Rename and copy firmware for main release
         if: steps.compile.outputs.status == 'success'
         run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${ORIGINAL#*-}"
           cp "$ORIGINAL" "$NEWNAME"
@@ -173,7 +126,7 @@ jobs:
         if: steps.compile.outputs.status == 'success'
         run: |
           mkdir -p $GITHUB_WORKSPACE/renamed
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${{ env.FILE_DATE2 }}-${ORIGINAL#*${{ matrix.target.version }}-}"
           cp "$ORIGINAL" "$GITHUB_WORKSPACE/renamed/$NEWNAME"
