@@ -126,7 +126,7 @@ jobs:
           cd "$BUILDROOT/openwrt"
           retry() {
             local max_attempts=5
-            local delay=10
+            local delay=30
             local attempt=1
             while true; do
               ./scripts/feeds update -a && break
