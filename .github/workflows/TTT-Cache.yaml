@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Cache 2-Release   
+name: OpenWrt x64/arm Cache 2-Release
 permissions: write-all
 
 on:
@@ -28,38 +28,42 @@ jobs:
             branch: openwrt-24.10
             config: OpenWRT/x86_x64/v23.x64.mini.config
             version: "24.10"
+            src_dir: openwrt-24.10
+            build_dir: openwrt-24.10-x64
           - name: openwrt24-arm
             branch: openwrt-24.10
             config: OpenWRT/v23.arm64.mini.config
             version: "24.10"
-            platform-version: "Arm 24.10"
+            src_dir: openwrt-24.10
+            build_dir: openwrt-24.10-arm
           - name: openwrt23-x64
             branch: openwrt-23.05
             config: OpenWRT/x86_x64/v23.x64.mini.config
             version: "23.05"
-            platform-version: "X64 23.05"
+            src_dir: openwrt-23.05
+            build_dir: openwrt-23.05-x64
           - name: openwrt23-arm
             branch: openwrt-23.05
             config: OpenWRT/v23.arm64.mini.config
             version: "23.05"
-            platform-version: "Arm 23.05"
+            src_dir: openwrt-23.05
+            build_dir: openwrt-23.05-arm
           - name: openwrt22-x64
             branch: openwrt-22.03
             config: OpenWRT/x86_x64/v23.x64.mini.config
             version: "22.03"
-            platform-version: "X64 22.03"
+            src_dir: openwrt-22.03
+            build_dir: openwrt-22.03-x64
           - name: openwrt22-arm
             branch: openwrt-22.03
             config: OpenWRT/v22.arm64.mini.config
             version: "22.03"
-            platform-version: "Arm 22.03"
+            src_dir: openwrt-22.03
+            build_dir: openwrt-22.03-arm
       fail-fast: false
 
     steps:
-      - name: 🛠️ Checkout source
-        uses: actions/checkout@v3
-
-      - name: Setup build environment
+      - name: ⏰ 环境准备
         run: |
           sudo rm -rf /etc/apt/sources.list.d/*
           sudo timedatectl set-timezone "$TZ"
@@ -67,71 +71,74 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /mnt/workdir
           echo "FILE_DATE2=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
 
-      - name: 🛠️ 安装依赖包（含 build-essential 和 ccache）
+      - name: 📦 安装依赖（build-essential 和 ccache）
         run: |
           sudo rm -rf /etc/apt/sources.list.d/*
           echo "deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list
           sudo apt-get clean
           sudo apt-get update -y
-
-          # 确认安装 add-apt-repository 工具
           sudo apt-get install -y software-properties-common
-
-          # 明确添加 universe 组件（有时需要更新 sources.list 后重做）
           sudo add-apt-repository universe || true
-
-          # 再次更新
           sudo apt-get update -y
+          sudo apt-get install -y ccache build-essential
 
-          # 安装软件包
-          sudo apt-get install -y ccache build-essential || \
-              (echo "尝试使用apt-get install -y build-essential ccache失败，检查Ubuntu版本和源配置" && exit 1)
-
-
-      - name: 缓存 ccache 以加速编译 ⚡
+      - name: ⚡ 缓存 ccache 以加速编译
         uses: actions/cache@v3
         with:
-          path: |
-            ~/.ccache
+          path: ~/.ccache
           key: ${{ runner.os }}-ccache-${{ matrix.target.branch }}-${{ matrix.target.name }}-${{ hashFiles('**/OpenWRT/**') }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-
+          restore-keys: ${{ runner.os }}-ccache-
 
-      - name: 💠 克隆源码并保存版本信息（带重试机制） 
+      - name: 🔄 克隆源码（共享目录，带重试）
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          TARGET_DIR="$BUILDROOT/openwrt"
-
-          if [ ! -d "$TARGET_DIR" ]; then
-            echo "🌀 源码目录不存在，准备克隆 OpenWrt（分支 ${{ matrix.target.branch }}）..."
+          SRC_DIR="/mnt/workdir/${{ matrix.target.src_dir }}"
+          if [ ! -d "$SRC_DIR" ]; then
+            echo "🌀 源码目录不存在，准备克隆 OpenWrt 分支 ${{ matrix.target.branch }} 到 $SRC_DIR"
             max_retries=3
             retry_delay=5
             count=0
-            until git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$TARGET_DIR"; do
+            until git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$SRC_DIR"; do
               count=$((count+1))
               if [ "$count" -ge "$max_retries" ]; then
-                echo "❌ git clone 失败超过 $max_retries 次，退出。"
+                echo "❌ 克隆失败超过 $max_retries 次，退出。"
                 exit 1
               fi
-              echo "⚠️ git clone 失败，等待 $retry_delay 秒后重试...（第 $count 次）"
+              echo "⚠️ 克隆失败，等待 $retry_delay 秒后重试（第 $count 次）..."
               sleep $retry_delay
             done
           else
-            echo "✅ 源码已存在，跳过克隆：$TARGET_DIR"
+            echo "✅ 源码目录已存在，跳过克隆：$SRC_DIR"
           fi
 
-          mkdir -p "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}"
-
-          cd "$TARGET_DIR"
-          git show -s --date=short --format="🔖 版本: ${{ matrix.target.name }} / 分支: ${{ matrix.target.branch }}%n👤 Author: %an%n📅 Date: %cd%n🧾 Commit: %s%n🔗 Hash: %H%n" \
-            > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
-
-        shell: bash
-
-      - name: 更新并安装 feeds（带重试机制） 🔄
+      - name: 📁 创建构建目录（硬链接节省磁盘）
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          cd "$BUILDROOT/openwrt"
+          SRC_DIR="/mnt/workdir/${{ matrix.target.src_dir }}"
+          BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "🧩 使用硬链接从 $SRC_DIR 创建构建目录 $BUILD_DIR"
+            cp -al "$SRC_DIR" "$BUILD_DIR"
+          else
+            echo "✅ 构建目录已存在：$BUILD_DIR"
+          fi
+
+      - name: 📝 复制配置并应用自定义补丁
+        run: |
+          BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
+          cp "${{ matrix.target.config }}" "$BUILD_DIR/.config"
+          chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
+          cd "$BUILD_DIR"
+          $GITHUB_WORKSPACE/OpenWRT/custom.sh
+
+      - name: ⚙️ 设置 ccache 环境变量
+        run: |
+          echo "export CCACHE_DIR=\$HOME/.ccache" >> $GITHUB_ENV
+          echo "export CC='ccache gcc'" >> $GITHUB_ENV
+          echo "export CXX='ccache g++'" >> $GITHUB_ENV
+
+      - name: 🔧 更新并安装 feeds（带重试）
+        run: |
+          BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
+          cd "$BUILD_DIR"
           retry() {
             local max_attempts=5
             local delay=10
@@ -139,75 +146,61 @@ jobs:
             while true; do
               ./scripts/feeds update -a && break
               if [ $attempt -ge $max_attempts ]; then
-                echo "❌ feeds update失败，重试 $max_attempts 次后退出"
+                echo "❌ feeds 更新失败，重试 $max_attempts 次后退出。"
                 exit 1
               fi
               attempt=$((attempt + 1))
-              echo "等待 $delay 秒后重试..."
+              echo "⚠️ feeds 更新失败，等待 $delay 秒后重试（第 $attempt 次）..."
               sleep $delay
             done
           }
           retry
           ./scripts/feeds install -a
 
-      - name: 载入自定义配置和补丁 🧩
+      - name: 📥 下载软件包
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          cp "${{ matrix.target.config }}" "$BUILDROOT/openwrt/.config"
-          chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
-          cd "$BUILDROOT/openwrt"
-          $GITHUB_WORKSPACE/OpenWRT/custom.sh
-
-      - name: 设置 ccache 环境变量 ⚙️
-        run: |
-          echo "export CCACHE_DIR=\$HOME/.ccache" >> $GITHUB_ENV
-          echo "export CC='ccache gcc'" >> $GITHUB_ENV
-          echo "export CXX='ccache g++'" >> $GITHUB_ENV
-
-      - name: 下载软件包 📥
-        run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          cd "$BUILDROOT/openwrt"
+          BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
+          cd "$BUILD_DIR"
           make defconfig
           make download -j$(nproc)
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Telegram通知 - 开始编译 🚀
+      - name: 🤖 Telegram通知 - 开始编译 🚀
         run: |
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=🚧 开始构建: ${{ matrix.target.name }}" >/dev/null
 
-      - name: 编译固件 🏗️
+      - name: 🏗️ 编译固件
         id: compile
         continue-on-error: true
         run: |
-          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
-          cd "$BUILDROOT/openwrt"
+          BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
+          cd "$BUILD_DIR"
           make -j$(nproc) || make -j1 || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Telegram通知 - 编译成功 ✅
+      - name: ✅ Telegram通知 - 编译成功
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         run: |
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=✅ 构建成功: ${{ matrix.target.name }}" >/dev/null
 
-      - name: Telegram通知 - 编译失败 ❌
+      - name: ❌ Telegram通知 - 编译失败
         if: steps.compile.outcome != 'success' || steps.compile.outputs.status != 'success'
         run: |
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=❌ 构建失败: ${{ matrix.target.name }}" >/dev/null
 
-      - name: 重命名并复制固件（主Release） 📦
+      - name: 📦 重命名并复制固件（主Release）
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/${{ matrix.target.build_dir }}/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${ORIGINAL#*-}"
           cp "$ORIGINAL" "$NEWNAME"
           echo "FIRMWARE_MAIN=$PWD/$NEWNAME" >> $GITHUB_ENV
 
-      - name: 上传固件至主Release 🚩
+      - name: 🚩 上传固件至主Release
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         uses: softprops/action-gh-release@v1
         with:
@@ -221,19 +214,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN3 }}
 
-      - name: 重命名并复制固件（备份Release） 🔄
+      - name: 🔄 重命名并复制固件（备份Release）
         id: organize
         if: steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success'
         run: |
           mkdir -p $GITHUB_WORKSPACE/renamed
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt/bin/targets/*/*
+          cd /mnt/workdir/${{ matrix.target.build_dir }}/openwrt/bin/targets/*/*
           ORIGINAL=$(ls openwrt-*-rootfs.tar.gz | head -n 1)
           NEWNAME="openwrt-${{ matrix.target.version }}-${{ env.FILE_DATE2 }}-${ORIGINAL#*${{ matrix.target.version }}-}"
           cp "$ORIGINAL" "$GITHUB_WORKSPACE/renamed/$NEWNAME"
           echo "FIRMWARE_RENAMED=$GITHUB_WORKSPACE/renamed/$NEWNAME" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: 上传固件至备份Release 🗄️
+      - name: 🗄️ 上传固件至备份Release
         if: ${{ env.UPLOAD_RELEASE == 'true' && steps.compile.outcome == 'success' && steps.compile.outputs.status == 'success' }}
         uses: softprops/action-gh-release@v1
         with:
@@ -246,14 +239,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN3 }}
 
-      - name: 上传重命名固件到Artifact 📁
+      - name: 📁 上传重命名固件到Artifact
         if: steps.organize.outputs.status == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Renamed-${{ matrix.target.name }}-${{ env.FILE_DATE2 }}
           path: ${{ env.FIRMWARE_RENAMED }}
 
-      - name: 上传版本信息文件到Artifact 📝
+      - name: 📝 上传版本信息文件到Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VersionInfo-${{ matrix.target.name }}
@@ -263,23 +256,23 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 设置Release环境变量 🕒
+      - name: 🕒 设置Release环境变量
         run: |
           echo "FILE_DATE3=$(date '+%Y%m%d%H%M')" >> $GITHUB_ENV
 
-      - name: 下载版本信息Artifact ⬇️
+      - name: ⬇️ 下载版本信息Artifact
         uses: actions/download-artifact@v4
         with:
           pattern: VersionInfo-*
           path: ./versions
 
-      - name: 下载重命名固件Artifact ⬇️
+      - name: ⬇️ 下载重命名固件Artifact
         uses: actions/download-artifact@v4
         with:
           pattern: Renamed-*
           path: ./renamed
 
-      - name: 汇总唯一版本信息 📊
+      - name: 📊 汇总唯一版本信息
         run: |
           mkdir unique
           for file in $(find ./versions -name '*.version.txt'); do
@@ -293,7 +286,7 @@ jobs:
           cat version_body.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: 上传备份Release日志 📦
+      - name: 📦 上传备份Release日志
         if: ${{ env.UPLOAD_RELEASE == 'true' }}
         uses: softprops/action-gh-release@v1
         with:
@@ -306,7 +299,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN3 }}
 
-      - name: 上传主Release日志 🚩
+      - name: 🚩 上传主Release日志
         if: ${{ env.UPLOAD_RELEASE == 'true' }}
         uses: softprops/action-gh-release@v1
         with:
@@ -319,7 +312,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN3 }}
 
-      - name: Telegram通知 - 完成全部版本构建 🎉
+      - name: 🎉 Telegram通知 - 完成全部版本构建
         run: |
           text="✔️ OpenWrt x64/arm Matrix 2-Release已成功编译！%0A"
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=$text" >/dev/null
