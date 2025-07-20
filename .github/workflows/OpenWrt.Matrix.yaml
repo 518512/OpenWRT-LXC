@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Cache 2-Release   
+name: OpenWrt x64/arm Matrix 2-Release   
 permissions: write-all
 
 on:
@@ -15,8 +15,8 @@ env:
   REPO_URL: https://github.com/openwrt/openwrt
   TZ: Asia/Shanghai
   UPLOAD_RELEASE: true
-  PRODUCT_NAME: Cache_Matrix
-  PRODUCT_NAME_Bak: Cache_Matrix_Bak
+  PRODUCT_NAME: OpenWRT_Matrix
+  PRODUCT_NAME_Bak: OpenWRT_Matrix_Bak
 
 jobs:
   build:
