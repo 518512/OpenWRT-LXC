@@ -21,6 +21,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    concurrency:
+      group: clone-${{ matrix.target.src_dir }}
+      cancel-in-progress: false
     strategy:
       matrix:
         target:
@@ -63,7 +66,10 @@ jobs:
       fail-fast: false
 
     steps:
-      - name: ⏰ 环境准备
+      - name: ⚙️ Checkout source
+        uses: actions/checkout@v3
+
+      - name: ⚙️ 设置编译变量
         run: |
           sudo rm -rf /etc/apt/sources.list.d/*
           sudo timedatectl set-timezone "$TZ"
@@ -124,7 +130,7 @@ jobs:
       - name: 📝 复制配置并应用自定义补丁
         run: |
           BUILD_DIR="/mnt/workdir/${{ matrix.target.build_dir }}"
-          cp "${{ matrix.target.config }}" "$BUILD_DIR/.config"
+          cp "$GITHUB_WORKSPACE/${{ matrix.target.config }}" "$BUILD_DIR/.config"
           chmod +x $GITHUB_WORKSPACE/OpenWRT/custom.sh
           cd "$BUILD_DIR"
           $GITHUB_WORKSPACE/OpenWRT/custom.sh
