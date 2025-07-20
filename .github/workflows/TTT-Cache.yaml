@@ -21,9 +21,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    concurrency:
-      group: clone-${{ matrix.target.src_dir }}
-      cancel-in-progress: false
     strategy:
       matrix:
         target:
@@ -95,26 +92,33 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ matrix.target.branch }}-${{ matrix.target.name }}-${{ hashFiles('**/OpenWRT/**') }}
           restore-keys: ${{ runner.os }}-ccache-
 
-      - name: 🔄 克隆源码（共享目录，带重试）
+      - name: 🔄 克隆源码（共享目录，带文件锁，避免并发冲突）
         run: |
-          SRC_DIR="/mnt/workdir/${{ matrix.target.src_dir }}"
-          if [ ! -d "$SRC_DIR" ]; then
-            echo "🌀 源码目录不存在，准备克隆 OpenWrt 分支 ${{ matrix.target.branch }} 到 $SRC_DIR"
-            max_retries=3
-            retry_delay=5
-            count=0
-            until git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$SRC_DIR"; do
-              count=$((count+1))
-              if [ "$count" -ge "$max_retries" ]; then
-                echo "❌ 克隆失败超过 $max_retries 次，退出。"
-                exit 1
-              fi
-              echo "⚠️ 克隆失败，等待 $retry_delay 秒后重试（第 $count 次）..."
-              sleep $retry_delay
-            done
-          else
-            echo "✅ 源码目录已存在，跳过克隆：$SRC_DIR"
-          fi
+          LOCKFILE="/tmp/clone-${{ matrix.target.src_dir }}.lock"
+          (
+            flock -n 9 || {
+              echo "源码正在被其他任务克隆，等待锁释放..."
+              flock 9
+            }
+            SRC_DIR="/mnt/workdir/${{ matrix.target.src_dir }}"
+            if [ ! -d "$SRC_DIR" ]; then
+              echo "🌀 源码目录不存在，准备克隆 OpenWrt 分支 ${{ matrix.target.branch }} 到 $SRC_DIR"
+              max_retries=3
+              retry_delay=5
+              count=0
+              until git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$SRC_DIR"; do
+                count=$((count+1))
+                if [ "$count" -ge "$max_retries" ]; then
+                  echo "❌ 克隆失败超过 $max_retries 次，退出。"
+                  exit 1
+                fi
+                echo "⚠️ 克隆失败，等待 $retry_delay 秒后重试（第 $count 次）..."
+                sleep $retry_delay
+              done
+            else
+              echo "✅ 源码目录已存在，跳过克隆：$SRC_DIR"
+            fi
+          ) 9>"$LOCKFILE"
 
       - name: 📁 创建构建目录（硬链接节省磁盘）
         run: |
