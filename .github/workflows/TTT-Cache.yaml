@@ -97,18 +97,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
 
-      - name: 💠 克隆源码并保存版本信息
+      - name: 💠 克隆源码并保存版本信息（带重试机制） 
         run: |
           BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
           TARGET_DIR="$BUILDROOT/openwrt"
 
           if [ ! -d "$TARGET_DIR" ]; then
-            echo "🌀 克隆 OpenWrt 源码（分支 ${{ matrix.target.branch }}）..."
-            git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$TARGET_DIR"
-            if [ $? -ne 0 ]; then
-              echo "❌ git clone 失败，退出。"
-              exit 1
-            fi
+            echo "🌀 源码目录不存在，准备克隆 OpenWrt（分支 ${{ matrix.target.branch }}）..."
+            max_retries=3
+            retry_delay=5
+            count=0
+            until git clone "$REPO_URL" -b "${{ matrix.target.branch }}" "$TARGET_DIR"; do
+              count=$((count+1))
+              if [ "$count" -ge "$max_retries" ]; then
+                echo "❌ git clone 失败超过 $max_retries 次，退出。"
+                exit 1
+              fi
+              echo "⚠️ git clone 失败，等待 $retry_delay 秒后重试...（第 $count 次）"
+              sleep $retry_delay
+            done
           else
             echo "✅ 源码已存在，跳过克隆：$TARGET_DIR"
           fi
@@ -118,6 +125,7 @@ jobs:
           cd "$TARGET_DIR"
           git show -s --date=short --format="🔖 版本: ${{ matrix.target.name }} / 分支: ${{ matrix.target.branch }}%n👤 Author: %an%n📅 Date: %cd%n🧾 Commit: %s%n🔗 Hash: %H%n" \
             > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
+
         shell: bash
 
       - name: 更新并安装 feeds（带重试机制） 🔄

@@ -1,4 +1,4 @@
-name: OpenWrt x64/arm Cache 2-Release   
+name: Cache成功编译备份 2-Release   
 permissions: write-all
 
 on:
