@@ -11,8 +11,8 @@
 点击下表中 [![](https://img.shields.io/badge/下载-链接-blueviolet.svg?style=flat&logo=hack-the-box)](https://github.com/518512/My-ROOTFS/releases) 即可跳转到该设备固件下载页面
 | 平台+设备名称 | 固件编译状态 | 下载 |
 | :------------- | :------------- | :------------- |
-| [![](https://img.shields.io/badge/OpenWrt-Arm_64-32C955.svg?logo=openwrt)](#) |[![](https://github.com/518512/OpenWRT-LXC/actions/workflows/Arm64.v24%20%20.yaml/badge.svg)](#) [![](https://github.com/518512/OpenWRT-LXC/actions/workflows/Arm64.v23%20.yaml/badge.svg)](#) [![](https://github.com/518512/OpenWRT-LXC/actions/workflows/Arm64.v22%20%20.yaml/badge.svg)](#) | [![](https://img.shields.io/badge/下载--blueviolet.svg?logo=hack-the-box)](https://github.com/518512/OpenWRT-LXC/releases) |
-| [![](https://img.shields.io/badge/OpenWrt-X86_64-32C955.svg?logo=openwrt)](#) |[![](https://github.com/518512/OpenWRT-LXC/actions/workflows/x64.v24%20.yaml/badge.svg)](#) [![](https://github.com/518512/OpenWRT-LXC/actions/workflows/x64.v23%20.yaml/badge.svg)](#) [![](https://github.com/518512/OpenWRT-LXC/actions/workflows/x64.v22%20.yaml/badge.svg)](#) | [![](https://img.shields.io/badge/下载--blueviolet.svg?logo=hack-the-box)](https://github.com/518512/OpenWRT-LXC/releases) |
+| [![](https://img.shields.io/badge/OpenWrt-Arm_x64-32C955.svg?logo=openwrt)](#) |[![](https://github.com/518512/OpenWRT-LXC/actions/workflows/OpenWrt.Matrix.yaml/badge.svg)](#) [![](https://github.com/518512/OpenWRT-LXC/actions/workflows/Arm64.v23%20.yaml/badge.svg)](#) | [![](https://img.shields.io/badge/下载--blueviolet.svg?logo=hack-the-box)](https://github.com/518512/OpenWRT-LXC/releases) |
+
 - 为什么要有三个版本的OpenWRT？
 - 仅限于就**自身**使用需求来看，ImmortalWrt更适合作为主路由，LEDE更适合旁路网关，或者无IPV6 RA设置需求的。
 - 另外的OpenWRT官方版如**xYx-c所说**很清爽。
