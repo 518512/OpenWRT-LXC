@@ -141,6 +141,10 @@ jobs:
           }
           retry
           ./scripts/feeds install -a
+          
+      - name: 检查 llvm.download-ci-llvm 配置
+        run: |
+          cat /mnt/workdir/${{ matrix.target.name }}/openwrt/feeds/packages/lang/rust/Makefile | grep llvm.download-ci-llvm || echo "未找到 llvm.download-ci-llvm"
 
       - name: 载入自定义配置和补丁 🧩
         run: |
