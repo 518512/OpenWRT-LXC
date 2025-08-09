@@ -119,16 +119,6 @@ jobs:
           git show -s --date=short --format="🔖 版本: ${{ matrix.target.name }} / 分支: ${{ matrix.target.branch }}%n👤 Author: %an%n📅 Date: %cd%n🧾 Commit: %s%n🔗 Hash: %H%n" \
             > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
         shell: bash
-        
-      - name: 打印 llvm.download-ci-llvm 相关行（替换前）
-        run: grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
-
-      - name: 替换 llvm.download-ci-llvm = true -> "if-unchanged"
-        run: |
-          find feeds/packages/lang/rust/ -type f -exec sed -i 's/llvm.download-ci-llvm = true/llvm.download-ci-llvm = "if-unchanged"/g' {} +
-
-      - name: 打印 llvm.download-ci-llvm 相关行（替换后）
-        run: grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
 
       - name: 更新并安装 feeds（带重试机制） 🔄
         run: |
