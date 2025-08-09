@@ -120,25 +120,6 @@ jobs:
             > "$GITHUB_WORKSPACE/version-info/${{ matrix.target.name }}/${{ matrix.target.name }}.version.txt"
         shell: bash
 
-      - name: 打印 llvm.download-ci-llvm 相关行（替换前）
-        if: startsWith(matrix.target.name, 'openwrt24')
-        run: |
-         cd /mnt/workdir/${{ matrix.target.name }}/openwrt
-         grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
-
-      - name: 替换 llvm.download-ci-llvm = true -> "if-unchanged"
-        if: startsWith(matrix.target.name, 'openwrt24')
-        run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
-          find feeds/packages/lang/rust/ -type f -exec sed -i 's/llvm.download-ci-llvm = true/llvm.download-ci-llvm = "if-unchanged"/g' {} +
-
-      - name: 打印 llvm.download-ci-llvm 相关行（替换后）
-        if: startsWith(matrix.target.name, 'openwrt24')
-        run: |
-          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
-          grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
-
-
       - name: 更新并安装 feeds（带重试机制） 🔄
         run: |
           BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
@@ -160,6 +141,14 @@ jobs:
           }
           retry
           ./scripts/feeds install -a
+          
+      - name: 替换 llvm.download-ci-llvm 仅针对 openwrt24
+        if: startsWith(matrix.target.name, 'openwrt24')
+        run: |
+          cd /mnt/workdir/${{ matrix.target.name }}/openwrt
+          grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
+          find feeds/packages/lang/rust/ -type f -exec sed -i 's/llvm.download-ci-llvm = true/llvm.download-ci-llvm = "if-unchanged"/g' {} +
+          grep -rn 'llvm.download-ci-llvm' feeds/packages/lang/rust/ || echo "未找到 llvm.download-ci-llvm"
           
       - name: 检查 llvm.download-ci-llvm 配置
         run: |
