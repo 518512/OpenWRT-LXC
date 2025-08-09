@@ -150,6 +150,19 @@ jobs:
           cd "$BUILDROOT/openwrt"
           $GITHUB_WORKSPACE/OpenWRT/custom.sh
 
+      - name: 💲 Patch Rust bootstrap for CI
+        if: contains(matrix.target.name, 'openwrt24')
+        run: |
+          BUILDROOT="/mnt/workdir/${{ matrix.target.name }}"
+          cd "$BUILDROOT/openwrt" || { echo "openwrt dir not found: $BUILDROOT/openwrt"; exit 0; }
+          RUST_MAKEFILE="feeds/packages/lang/rust/Makefile"
+          if [ -f "$RUST_MAKEFILE" ] && grep -q "llvm.download-ci-llvm = true" "$RUST_MAKEFILE"; then
+            sed -i 's/llvm.download-ci-llvm = true/llvm.download-ci-llvm = "false"/' "$RUST_MAKEFILE" || true
+            echo "[PATCH] 已将 llvm.download-ci-llvm 修改为 \"false\" ✅"
+          else
+            echo "[SKIP] 未找到需要替换的项，跳过补丁"
+          fi
+
       - name: 设置 ccache 环境变量 ⚙️
         run: |
           echo "export CCACHE_DIR=\$HOME/.ccache" >> $GITHUB_ENV
