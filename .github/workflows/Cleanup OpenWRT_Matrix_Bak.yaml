@@ -147,5 +147,5 @@ jobs:
           MSG=$(echo "$MSG" | escape_markdown_v2)
           curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
-            -d text="OpenWRT Matrix Backup 清理结果:\n$MSG" \
+            -d text=$'OpenWRT Matrix Backup 清理结果:\n'"$MSG" \
             -d parse_mode="MarkdownV2"
