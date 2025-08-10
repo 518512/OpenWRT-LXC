@@ -124,8 +124,8 @@ jobs:
               echo "  无需删除。"
             fi
 
-            printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
-              "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$delete_count" >> "$summary"
+            printf "分组: %s | 总数=%s  | 日期不重复数=%s | 保留=%s | 超时删除=%s | 日期重复删除=%s | 合计删除=%s\n" \
+              "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$dedup_extra_del_count" "$same_day_del_count" "$delete_count" >> "$summary"
 
             echo
           done
