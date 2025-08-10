@@ -134,9 +134,11 @@ jobs:
           echo "=== 清理汇总 ==="
           cat "$summary"
 
-          # 把 summary 内容输出到环境变量，给后续步骤使用（转义处理换行）
-          summary_content=$(sed ':a;N;$!ba;s/\n/\\n/g' "$summary")
-          echo "SUMMARY_CONTENT=$summary_content" >> "$GITHUB_OUTPUT"
+          # 把 summary 内容输出到环境变量，给后续步骤使用（保留换行，使用多行字符串格式）
+          summary_content=$(cat "$summary")
+          echo "SUMMARY_CONTENT<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$summary_content" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Telegram 通知
         if: always()
@@ -144,10 +146,9 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # 读取前一步导出的 SUMMARY_CONTENT
           MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
 
-          # MarkdownV2 转义函数，包含所有特殊字符，确保 Telegram 消息格式正确
+          # MarkdownV2 转义函数，转义特殊字符，包括竖线和点号
           escape_markdown_v2() {
             sed -e 's/\\/\\\\/g' \
                 -e 's/_/\\_/g' \
@@ -172,7 +173,6 @@ jobs:
 
           MSG=$(echo "$MSG" | escape_markdown_v2)
 
-          # 限制消息长度，防止超长截断
           MAX_LEN=1900
           MSG=${MSG:0:$MAX_LEN}
 
