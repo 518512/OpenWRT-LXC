@@ -1,58 +1,65 @@
 name: Cleanup Old OpenWRT_Matrix_Bak Assets
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
   schedule:
-    - cron: "30 2 * * *" # 每天凌晨 2:30 自动执行
+    - cron: "30 2 * * *" # 每天 02:30 UTC 自动执行（按需调整）
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: 设置变量
+      - name: 安装工具 gh/jq
         run: |
-          echo "REPO=518512/OpenWRT-LXC" >> $GITHUB_ENV
-          echo "TAG_NAME=OpenWRT_Matrix_Bak" >> $GITHUB_ENV
-          echo "KEEP=5" >> $GITHUB_ENV
-          echo "SEP=|" >> $GITHUB_ENV  # 单字符分隔符，防止 sort 报错
-
-      - name: 安装 GitHub CLI
-        run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y jq gh
-          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+          # 用 GITHUB_TOKEN 登录 gh
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
-      - name: 清理老旧产物
+      - name: 清理 OpenWRT_Matrix_Bak 历史产物（按 target 分组，先同日去重，再保留最新 N 个）
+        env:
+          REPO: ${{ github.repository }}
+          TAG_NAME: OpenWRT_Matrix_Bak
+          KEEP: 5
+          SEP: "|"        # 单字符分隔，供 sort/awk 使用
         run: |
+          set -euo pipefail
+
           echo "=== 步骤 1: 获取 tag $TAG_NAME 的所有 release 产物 ==="
           TMPDIR=$(mktemp -d)
           export TMPDIR
-          gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1 || {
-            echo "未找到 tag: $TAG_NAME"
-            exit 0
-          }
 
+          # 检查 Release 是否存在
+          if ! gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            echo "未找到 tag: $TAG_NAME，退出。"
+            exit 0
+          fi
+
+          # 拉取 assets：createdAt, id, name（用 SEP 拼接成一行）
           gh release view "$TAG_NAME" --repo "$REPO" --json assets \
             --jq '.assets[] | [.createdAt, .id, .name] | join(env.SEP)' \
             > "$TMPDIR/assets_all.txt"
 
           total_files=$(wc -l < "$TMPDIR/assets_all.txt" | tr -d ' ')
           echo "总产物数: $total_files"
-          if [ "$total_files" -eq 0 ]; then
-            echo "没有找到任何产物，退出。"
-            exit 0
-          fi
+          [ "$total_files" -eq 0 ] && { echo "没有产物，退出。"; exit 0; }
 
-          echo "=== 步骤 2: 按 target 分组 ==="
+          echo
+          echo "=== 步骤 2: 按 target 分组（去掉文件名里的时间戳 -YYYYMMDDhhmm） ==="
           mkdir -p "$TMPDIR/groups"
+
+          # 这里的分组键：把文件名里第一个 -[0-9]{12}（例如 -202507202208）移除
           while IFS="$SEP" read -r created id name; do
-            target=$(echo "$name" | cut -d'_' -f1)
-            echo "$created$SEP$id$SEP$name" >> "$TMPDIR/groups/$target.list"
+            # 将第一个 -12位数字时间戳去掉，得 group key
+            group=$(echo "$name" | sed -E 's/-[0-9]{12}//')
+            # 若去掉时间戳后仍包含路径问题，可进一步 normalize（本例不需）
+            echo "$created$SEP$id$SEP$name" >> "$TMPDIR/groups/$group.list"
           done < "$TMPDIR/assets_all.txt"
 
-          echo "分组完成，组数: $(ls "$TMPDIR/groups" | wc -l)"
+          echo "分组完成，组数: $(ls -1 "$TMPDIR/groups" | wc -l)"
+          echo
 
-          echo "=== 步骤 3: 查看每组文件数 ==="
+          echo "=== 步骤 3: 各组文件数 ==="
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
             group=$(basename "$f" .list)
@@ -60,9 +67,10 @@ jobs:
             echo "  $group: $count 个文件"
           done
 
-          echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本 ==="
-          summary_file="$TMPDIR/summary.txt"
-          printf "" > "$summary_file"
+          echo
+          echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本（每组单独处理） ==="
+          summary="$TMPDIR/summary.txt"
+          : > "$summary"
 
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
@@ -71,29 +79,27 @@ jobs:
             total_group=$(wc -l < "$f" | tr -d ' ')
             echo "  总数: $total_group"
 
-            # 按创建时间倒序
+            # 按 createdAt 倒序（新 -> 旧）
             sort -r -t"$SEP" -k1 "$f" > "$f.sorted"
 
-            # 同日去重（保留当天最新的一个）
+            # 同日去重：按 createdAt 的日期部分 (split by 'T')，保留当天第一个（因为已倒序，所以是当天最新）
             awk -F"$SEP" '
               {
-                split($1, dt, "T");
-                date = dt[1];
+                split($1, dt, "T")
+                date = dt[1]
                 if (!(date in seen)) {
-                  seen[date] = $0;
+                  seen[date] = $0
                 }
               }
               END {
-                for (d in seen) {
-                  print seen[d];
-                }
+                for (d in seen) print seen[d]
               }
             ' "$f.sorted" | sort -r -t"$SEP" -k1 > "$f.dedup"
 
             dedup_count=$(wc -l < "$f.dedup" | tr -d ' ')
             echo "  同日去重后: $dedup_count"
 
-            # 保留最近 N 个
+            # 保留最新 KEEP 个，其余删除
             head -n "$KEEP" "$f.dedup" > "$f.keep" || true
             tail -n +"$((KEEP+1))" "$f.dedup" > "$f.delete" || true
 
@@ -101,25 +107,24 @@ jobs:
             todel=$(wc -l < "$f.delete" 2>/dev/null || echo 0)
 
             echo "  保留数量: $kept"
-            echo "  删除数量: $todel"
+            echo "  待删除数量: $todel"
 
-            if [ "$todel" -eq 0 ]; then
+            if [ "$todel" -gt 0 ]; then
+              echo "  待删除列表："
+              awk -F"$SEP" '{print "    " $3 " (createdAt: " $1 ")"}' "$f.delete"
+
+            else
               echo "  无需删除。"
-              printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
-                "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary_file"
-              continue
             fi
 
-            echo "  待删除列表："
-            awk -F"$SEP" '{print "    " NR ". " $3 " (created_at: " $1 ")"}' "$f.delete"
-
-
             printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
-              "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary_file"
+              "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary"
+            echo
           done
 
-          echo
           echo "=== 清理汇总 ==="
-          cat "$summary_file"
+          cat "$summary"
+
+        # env GH token is provided via secrets for gh cli auth
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
