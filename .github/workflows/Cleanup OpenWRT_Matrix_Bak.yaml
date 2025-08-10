@@ -1,130 +1,125 @@
-name: Cleanup OpenWRT_Matrix_Bak per-matrix (keep N per target)
+name: Cleanup OpenWRT_Matrix_Bak Assets
 
 on:
-  schedule:
-    - cron: '0 3 * * *'     # 可按需修改为每天凌晨 3 点
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag to clean (默认 OpenWRT_Matrix_Bak)'
-        required: false
-        default: 'OpenWRT_Matrix_Bak'
-      keep:
-        description: '每个 target 保留最新多少个文件'
-        required: false
-        default: '5'
+
+env:
+  REPO: ${{ github.repository }}
+  TAG_NAME: OpenWRT_Matrix_Bak
+  KEEP: 5
+  SEP: '|||'
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    env:
-      REPO: ${{ github.repository }}
-      # TOKEN 会从 secrets 中注入（gh api 会自动使用）
     steps:
-      - name: 安装依赖 (gh, jq)
+      - name: 检查 GitHub CLI
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq gh
+          if ! command -v gh &>/dev/null; then
+            echo "GitHub CLI 未安装，正在安装..."
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
 
-      - name: 清理 release 附件（按 matrix 分组保留最新 N 个）
+      - name: 拉取指定 tag 的所有 release 产物
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.inputs.tag || 'OpenWRT_Matrix_Bak' }}
-          KEEP: ${{ github.event.inputs.keep || 5 }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          echo "Repo: $REPO"
-          echo "Target release tag: $TAG"
-          echo "Per-target keep: $KEEP"
-
-          # 这里的 TOKENS 用来根据文件名识别属于哪个 matrix target
-          # 如需按你自己的命名规则修改这列（例如只包含 'x64' / 'arm' / '24' 等片段）
-          TOKENS=( "openwrt24-x64" "openwrt24-arm" "openwrt23-x64" "openwrt23-arm" "openwrt22-x64" "openwrt22-arm" )
-          echo "使用的分组 token: ${TOKENS[*]}"
-
-          # 获取 release ID
-          echo "=== 步骤 1: 获取 Release ==="
-          RELEASE_JSON=$(gh api repos/"$REPO"/releases/tags/"$TAG" 2>/dev/null || true)
-          if [ -z "$RELEASE_JSON" ]; then
-            echo "未找到 tag='$TAG' 对应的 Release，退出。"
-            exit 0
-          fi
-          RELEASE_ID=$(echo "$RELEASE_JSON" | jq -r '.id')
-          echo "Release id: $RELEASE_ID"
-
-          echo
-          echo "=== 步骤 2: 拉取所有附件列表 ==="
-          ASSETS_JSON=$(gh api repos/"$REPO"/releases/"$RELEASE_ID"/assets 2>/dev/null || echo "[]")
-          TOTAL=$(echo "$ASSETS_JSON" | jq 'length')
-          echo "资产总数: $TOTAL"
-          if [ "$TOTAL" -eq 0 ]; then
-            echo "没有附件，结束。"
-            exit 0
-          fi
-
+          echo "=== 步骤 1: 获取 tag $TAG_NAME 的所有 release 产物 ==="
           TMPDIR=$(mktemp -d)
-          SEP=$'\x1F'   # 安全分隔符（unit separator），避免文件名冲突
+          export TMPDIR
+          gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1 || {
+            echo "未找到 tag: $TAG_NAME"
+            exit 0
+          }
 
-          echo
-          echo "=== 步骤 3: 按 token 分组资产并写入临时文件 ==="
-          echo "$ASSETS_JSON" | jq -c '.[]' | while read -r asset; do
-            ID=$(echo "$asset" | jq -r '.id')
-            NAME=$(echo "$asset" | jq -r '.name')
-            CREATED_AT=$(echo "$asset" | jq -r '.created_at')
-            GROUP="__others"
-            for t in "${TOKENS[@]}"; do
-              if [[ "$NAME" == *"$t"* ]]; then
-                GROUP="$t"
-                break
-              fi
-            done
-            # 存为 "created_at<SEP>id<SEP>name"
-            printf '%s%s%s%s%s\n' "$CREATED_AT" "$SEP" "$ID" "$SEP" "$NAME" >> "$TMPDIR/$GROUP.list"
+          gh release view "$TAG_NAME" --repo "$REPO" --json assets \
+            --jq '.assets[] | [.createdAt, .id, .name] | join(env.SEP)' \
+            > "$TMPDIR/assets_all.txt"
+
+          total_files=$(wc -l < "$TMPDIR/assets_all.txt" | tr -d ' ')
+          echo "总产物数: $total_files"
+
+          if [ "$total_files" -eq 0 ]; then
+            echo "没有找到任何产物，退出。"
+            exit 0
+          fi
+
+          echo "=== 步骤 2: 按 target 分组 ==="
+          mkdir -p "$TMPDIR/groups"
+          while IFS="$SEP" read -r created id name; do
+            target=$(echo "$name" | cut -d'_' -f1)
+            echo "$created$SEP$id$SEP$name" >> "$TMPDIR/groups/$target.list"
+          done < "$TMPDIR/assets_all.txt"
+
+          echo "分组完成，组数: $(ls "$TMPDIR/groups" | wc -l)"
+
+          echo "=== 步骤 3: 查看每组文件数 ==="
+          for f in "$TMPDIR/groups"/*.list; do
+            [ -f "$f" ] || continue
+            group=$(basename "$f" .list)
+            count=$(wc -l < "$f" | tr -d ' ')
+            echo "  $group: $count 个文件"
           done
 
-          echo
-          echo "=== 步骤 4: 逐组处理（按时间倒序，保留前 $KEEP 个，删除其余） ==="
-          echo
-
+          echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本 ==="
           summary_file="$TMPDIR/summary.txt"
           printf "" > "$summary_file"
 
-          for f in "$TMPDIR"/*.list; do
+          for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
             group=$(basename "$f" .list)
             echo "处理组: $group"
             total_group=$(wc -l < "$f" | tr -d ' ')
-            echo "  该组总数: $total_group"
+            echo "  总数: $total_group"
 
-            # 按 created_at 倒序（新→旧）
+            # 按创建时间倒序
             sort -r -t"$SEP" -k1 "$f" > "$f.sorted"
 
-            # 保留和删除列表
-            head -n "$KEEP" "$f.sorted" > "$f.keep" || true
-            tail -n +"$((KEEP+1))" "$f.sorted" > "$f.delete" || true
+            # 同日去重
+            awk -F"$SEP" '
+              {
+                split($1, dt, "T");
+                date = dt[1];
+                if (!(date in seen)) {
+                  seen[date] = $0;
+                }
+              }
+              END {
+                for (d in seen) {
+                  print seen[d];
+                }
+              }
+            ' "$f.sorted" | sort -r -t"$SEP" -k1 > "$f.dedup"
+
+            dedup_count=$(wc -l < "$f.dedup" | tr -d ' ')
+            echo "  同日去重后: $dedup_count"
+
+            # 保留最近 N 个
+            head -n "$KEEP" "$f.dedup" > "$f.keep" || true
+            tail -n +"$((KEEP+1))" "$f.dedup" > "$f.delete" || true
 
             kept=$(wc -l < "$f.keep" 2>/dev/null || echo 0)
             todel=$(wc -l < "$f.delete" 2>/dev/null || echo 0)
 
             echo "  保留数量: $kept"
-            echo "  待删除数量: $todel"
+            echo "  删除数量: $todel"
 
             if [ "$todel" -eq 0 ]; then
-              echo "  无需删除，跳过。"
-              printf "Group: %s | total=%s | keep=%s | delete=%s\n" "$group" "$total_group" "$kept" "$todel" >> "$summary_file"
+              echo "  无需删除。"
+              printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
+                "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary_file"
               continue
             fi
 
             echo "  待删除列表："
             awk -F"$SEP" '{print "    " NR ". " $3 " (created_at: " $1 ")"}' "$f.delete"
-            echo
 
-            printf "Group: %s | total=%s | keep=%s | delete=%s\n" "$group" "$total_group" "$kept" "$todel" >> "$summary_file"
-            echo
+
+            printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
+              "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary_file"
           done
 
           echo
-          echo "=== 步骤 5: 最终汇总 ==="
-          cat "$summary_file" || true
-          echo
-          echo "清理完成。"
+          echo "=== 清理汇总 ==="
+          cat "$summary_file"
