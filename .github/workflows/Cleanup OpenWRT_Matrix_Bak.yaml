@@ -1,29 +1,28 @@
-name: Cleanup OpenWRT_Matrix_Bak Assets
+name: Cleanup Old OpenWRT_Matrix_Bak Assets
 
 on:
-  workflow_dispatch:
-
-env:
-  REPO: ${{ github.repository }}
-  TAG_NAME: OpenWRT_Matrix_Bak
-  KEEP: 5
-  SEP: '|||'
+  workflow_dispatch: # 手动触发
+  schedule:
+    - cron: "30 2 * * *" # 每天凌晨 2:30 自动执行
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: 检查 GitHub CLI
+      - name: 设置变量
         run: |
-          if ! command -v gh &>/dev/null; then
-            echo "GitHub CLI 未安装，正在安装..."
-            sudo apt-get update
-            sudo apt-get install -y gh
-          fi
+          echo "REPO=518512/OpenWRT-LXC" >> $GITHUB_ENV
+          echo "TAG_NAME=OpenWRT_Matrix_Bak" >> $GITHUB_ENV
+          echo "KEEP=5" >> $GITHUB_ENV
+          echo "SEP=|" >> $GITHUB_ENV  # 单字符分隔符，防止 sort 报错
 
-      - name: 拉取指定 tag 的所有 release 产物
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 安装 GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq gh
+          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: 清理老旧产物
         run: |
           echo "=== 步骤 1: 获取 tag $TAG_NAME 的所有 release 产物 ==="
           TMPDIR=$(mktemp -d)
@@ -39,7 +38,6 @@ jobs:
 
           total_files=$(wc -l < "$TMPDIR/assets_all.txt" | tr -d ' ')
           echo "总产物数: $total_files"
-
           if [ "$total_files" -eq 0 ]; then
             echo "没有找到任何产物，退出。"
             exit 0
@@ -76,7 +74,7 @@ jobs:
             # 按创建时间倒序
             sort -r -t"$SEP" -k1 "$f" > "$f.sorted"
 
-            # 同日去重
+            # 同日去重（保留当天最新的一个）
             awk -F"$SEP" '
               {
                 split($1, dt, "T");
@@ -123,3 +121,5 @@ jobs:
           echo
           echo "=== 清理汇总 ==="
           cat "$summary_file"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
