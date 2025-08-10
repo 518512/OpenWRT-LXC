@@ -1,50 +1,41 @@
-name: Clean Old Releases for OpenWRT_Matrix_Bak
+name: Cleanup OpenWRT_Matrix_Bak Assets
 
 on:
   workflow_dispatch:
-
-env:
-  REPO: 518512/OpenWRT        # 你的仓库名
-  TAG_NAME: OpenWRT_Matrix_Bak
-  KEEP: 5
-  SEP: "|||"
+  schedule:
+    - cron: "30 2 * * *" # 每天 02:30 UTC 自动执行（按需调整）
 
 jobs:
-  clean_releases:
+  cleanup:
     runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      TAG_NAME: OpenWRT_Matrix_Bak
+      KEEP: 5
+      SEP: "|"   # 单字符分隔，必须是单字符
     steps:
-      - name: Checkout repo (needed for gh cli config)
-        uses: actions/checkout@v3
-
-      - name: Install GitHub CLI
+      - name: 安装依赖 gh jq
         run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y gh jq
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
-      - name: Authenticate gh CLI
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
-
-      - name: Clean old releases assets
-        env:
-          REPO: ${{ env.REPO }}
-          TAG_NAME: ${{ env.TAG_NAME }}
-          KEEP: ${{ env.KEEP }}
-          SEP: ${{ env.SEP }}
+      - name: 执行清理逻辑（按 target 分组，先同日去重，再保留最近 N 个）
         run: |
           set -euo pipefail
+          echo "Repo: $REPO"
+          echo "Tag: $TAG_NAME"
+          echo "Keep per group: $KEEP"
+          echo "SEP: $SEP"
 
-          echo "=== 清理开始 ==="
           TMPDIR=$(mktemp -d)
-          export TMPDIR
+          echo "TMPDIR=$TMPDIR"
 
-          echo "=== 步骤 1: 获取 tag $TAG_NAME 的所有 release 产物 ==="
-          gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1 || {
-            echo "未找到 tag: $TAG_NAME"
+          echo "=== 步骤 1: 获取 release assets ==="
+          if ! gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            echo "未找到 release for tag: $TAG_NAME，退出。"
             exit 0
-          }
+          fi
 
           gh release view "$TAG_NAME" --repo "$REPO" --json assets \
             --jq '.assets[] | [.createdAt, .id, .name] | join(env.SEP)' \
@@ -52,34 +43,31 @@ jobs:
 
           total_files=$(wc -l < "$TMPDIR/assets_all.txt" | tr -d ' ')
           echo "总产物数: $total_files"
+          [ "$total_files" -eq 0 ] && { echo "没有产物，退出。"; exit 0; }
 
-          if [ "$total_files" -eq 0 ]; then
-            echo "没有找到任何产物，退出。"
-            exit 0
-          fi
-
-          echo "=== 步骤 2: 按 target 分组 ==="
+          echo
+          echo "=== 步骤 2: 按 group 分组（去掉文件名里的第一个 -YYYYMMDDhhmm 时间戳） ==="
           mkdir -p "$TMPDIR/groups"
           while IFS="$SEP" read -r created id name; do
-            # 根据你的文件命名规则调整下面的分组逻辑
-            # 这里举例：文件名形如 openwrt-版本-日期-平台-rootfs.tar.gz，分组取后缀平台部分
-            group=$(echo "$name" | sed -E 's/^openwrt-[^-]+-[^-]+-//')
+            group=$(echo "$name" | sed -E 's/-[0-9]{12}//')
             echo "$created$SEP$id$SEP$name" >> "$TMPDIR/groups/$group.list"
           done < "$TMPDIR/assets_all.txt"
 
-          echo "分组完成，组数: $(ls "$TMPDIR/groups" | wc -l)"
+          echo "分组完成，组数: $(ls -1 "$TMPDIR/groups" | wc -l)"
+          echo
 
-          echo "=== 步骤 3: 查看每组文件数 ==="
+          echo "=== 步骤 3: 每组统计 ==="
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
             group=$(basename "$f" .list)
             count=$(wc -l < "$f" | tr -d ' ')
             echo "  $group: $count 个文件"
           done
+          echo
 
-          echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本，显示待删文件 ==="
-          summary_file="$TMPDIR/summary.txt"
-          printf "" > "$summary_file"
+          echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本（每组） ==="
+          summary="$TMPDIR/summary.txt"
+          : > "$summary"
 
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
@@ -88,19 +76,18 @@ jobs:
             total_group=$(wc -l < "$f" | tr -d ' ')
             echo "  总数: $total_group"
 
-            # 按创建时间倒序
             sort -r -t"$SEP" -k1 "$f" > "$f.sorted"
 
-            # 同日去重，同时收集同日旧文件为待删
+            : > "$f.dedup"
+            : > "$f.same_day_delete"
             awk -F"$SEP" -v SEP="$SEP" '
               {
-                split($1, dt, "T");
-                date = dt[1];
+                date = substr($1,1,10);
                 if (!(date in seen)) {
-                  seen[date] = $0;
-                  print $0 > "'"$f"'.dedup"
+                  seen[date] = 1;
+                  print $0 >> "'"$f"'.dedup"
                 } else {
-                  print $0 > "'"$f"'.same_day_delete"
+                  print $0 >> "'"$f"'.same_day_delete"
                 }
               }
             ' "$f.sorted"
@@ -110,42 +97,38 @@ jobs:
             echo "  同日去重后保留数(dedup): $dedup_count"
             echo "  同日旧文件待删数(same_day_delete): $same_day_del_count"
 
-            # 保留最近 N 个 dedup 文件
             head -n "$KEEP" "$f.dedup" > "$f.keep" || true
             tail -n +"$((KEEP+1))" "$f.dedup" > "$f.dedup_extra_delete" || true
 
             dedup_keep_count=$(wc -l < "$f.keep" 2>/dev/null || echo 0)
             dedup_extra_del_count=$(wc -l < "$f.dedup_extra_delete" 2>/dev/null || echo 0)
 
-            # 合并所有待删文件列表
             cat "$f.same_day_delete" "$f.dedup_extra_delete" > "$f.delete"
 
             delete_count=$(wc -l < "$f.delete" 2>/dev/null || echo 0)
 
             echo "  保留数量 (keep): $dedup_keep_count"
             echo "  除保留外多余文件 (dedup_extra_delete): $dedup_extra_del_count"
-            echo "  同日旧文件 + 多余版本 删除总数(delete): $delete_count"
+            echo "  同日旧文件 + 超出版本限制 删除总数(delete): $delete_count"
 
-            if [ "$delete_count" -eq 0 ]; then
+            if [ "$delete_count" -gt 0 ]; then
+              echo "  待删除列表："
+              awk -F"$SEP" '{print "    " $3 " (createdAt: " $1 ")"}' "$f.delete"
+
+              # 实际删除操作，测试时保持注释，确认无误后可解注释启用
+              # while IFS="$SEP" read -r created id name; do
+              #   echo "删除资产: $name (id: $id)"
+              #   gh release delete-asset "$id" --repo "$REPO" --yes
+              # done < "$f.delete"
+            else
               echo "  无需删除。"
-              printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
-                "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$delete_count" >> "$summary_file"
-              continue
             fi
 
-            echo "  待删除列表："
-            awk -F"$SEP" '{print "    " NR ". " $3 " (created_at: " $1 ")"}' "$f.delete"
-
-            # 删除文件命令，取消注释后启用删除：
-            # while IFS="$SEP" read -r created id name; do
-            #   echo "删除资产: $name (id: $id)"
-            #   gh release delete-asset "$id" --repo "$REPO" --yes
-            # done < "$f.delete"
-
             printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
-              "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$delete_count" >> "$summary_file"
+              "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$delete_count" >> "$summary"
+
+            echo
           done
 
-          echo
           echo "=== 清理汇总 ==="
-          cat "$summary_file"
+          cat "$summary"
