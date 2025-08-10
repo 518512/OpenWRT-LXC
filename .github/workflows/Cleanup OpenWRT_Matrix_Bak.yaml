@@ -109,14 +109,6 @@ jobs:
             echo "  保留数量: $kept"
             echo "  待删除数量: $todel"
 
-            if [ "$todel" -gt 0 ]; then
-              echo "  待删除列表："
-              awk -F"$SEP" '{print "    " $3 " (createdAt: " $1 ")"}' "$f.delete"
-
-            else
-              echo "  无需删除。"
-            fi
-
             printf "Group: %s | total=%s | dedup=%s | keep=%s | delete=%s\n" \
               "$group" "$total_group" "$dedup_count" "$kept" "$todel" >> "$summary"
             echo
