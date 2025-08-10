@@ -125,7 +125,7 @@ jobs:
               echo "  无需删除。"
             fi
 
-            printf "分组: %s\n总数=%s  | 有效数=%s | 保留=%s | 超时=%s | 日期重复=%s | 合计删除=%s\n\n" \
+            printf "分组: %s | 总数=%s  | 有效数=%s | 保留=%s | 超时=%s | 日期重复=%s | 合计删除=%s\n" \
               "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$dedup_extra_del_count" "$same_day_del_count" "$delete_count" >> "$summary"
 
             echo
@@ -134,11 +134,9 @@ jobs:
           echo "=== 清理汇总 ==="
           cat "$summary"
 
-          # 把 summary 内容输出到环境变量，保留真实换行
-          summary_content=$(cat "$summary")
-          echo "SUMMARY_CONTENT<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$summary_content" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          # 转义换行符，方便后续步骤读取
+          summary_content=$(sed ':a;N;$!ba;s/\n/\\n/g' "$summary")
+          echo "SUMMARY_CONTENT=$summary_content" >> "$GITHUB_OUTPUT"
 
       - name: Telegram 通知
         if: always()
@@ -146,9 +144,14 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
+          # 读取前一步导出的 SUMMARY_CONTENT 并还原换行符
+          RAW_MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
+          MSG=$(echo -e "$RAW_MSG")
 
-          # MarkdownV2 转义函数，注意不转义换行符，保留换行
+          # 替换竖线避免 Telegram 格式问题
+          MSG=$(echo "$MSG" | sed 's/|/｜/g')
+
+          # MarkdownV2 转义函数
           escape_markdown_v2() {
             sed -e 's/\\/\\\\/g' \
                 -e 's/_/\\_/g' \
@@ -166,14 +169,17 @@ jobs:
                 -e 's/=/\\=/g' \
                 -e 's/{/\\{/g' \
                 -e 's/}/\\}/g' \
-                -e 's/!/\\!/g' \
-                -e 's/|/\\|/g' \
-                -e 's/\./\\./g'
+                -e 's/!/\\!/g'
           }
 
           MSG=$(echo "$MSG" | escape_markdown_v2)
 
+          # 限制消息长度，防止超长截断
+          MAX_LEN=1900
+          MSG=${MSG:0:$MAX_LEN}
+
+          # 发送消息，保证换行生效
           curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
-            -d text="OpenWRT Matrix Backup 清理结果:\n$MSG" \
+            -d text=$'OpenWRT Matrix Backup 清理结果:\n'"$MSG" \
             -d parse_mode="MarkdownV2"
