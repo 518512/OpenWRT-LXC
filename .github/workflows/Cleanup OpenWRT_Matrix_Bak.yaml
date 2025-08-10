@@ -19,7 +19,6 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y gh jq
           echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
       - name: 执行清理逻辑（按 target 分组，先同日去重，再保留最近 N 个）
         id: cleanup_step
         run: |
@@ -28,24 +27,19 @@ jobs:
           echo "Tag: $TAG_NAME"
           echo "Keep per group: $KEEP"
           echo "SEP: $SEP"
-
           TMPDIR=$(mktemp -d)
           echo "TMPDIR=$TMPDIR"
-
           echo "=== 步骤 1: 获取 release assets ==="
           if ! gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
             echo "未找到 release for tag: $TAG_NAME，退出。"
             exit 0
           fi
-
           gh release view "$TAG_NAME" --repo "$REPO" --json assets \
             --jq '.assets[] | [.createdAt, .id, .name] | join(env.SEP)' \
             > "$TMPDIR/assets_all.txt"
-
           total_files=$(wc -l < "$TMPDIR/assets_all.txt" | tr -d ' ')
           echo "总产物数: $total_files"
           [ "$total_files" -eq 0 ] && { echo "没有产物，退出。"; exit 0; }
-
           echo
           echo "=== 步骤 2: 按 group 分组（去掉文件名里的第一个 -YYYYMMDDhhmm 时间戳） ==="
           mkdir -p "$TMPDIR/groups"
@@ -53,10 +47,8 @@ jobs:
             group=$(echo "$name" | sed -E 's/-[0-9]{12}//')
             echo "$created$SEP$id$SEP$name" >> "$TMPDIR/groups/$group.list"
           done < "$TMPDIR/assets_all.txt"
-
           echo "分组完成，组数: $(ls -1 "$TMPDIR/groups" | wc -l)"
           echo
-
           echo "=== 步骤 3: 每组统计 ==="
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
@@ -65,20 +57,16 @@ jobs:
             echo "  $group: $count 个文件"
           done
           echo
-
           echo "=== 步骤 4: 同日去重 + 保留最近 $KEEP 个版本（每组） ==="
           summary="$TMPDIR/summary.txt"
           : > "$summary"
-
           for f in "$TMPDIR/groups"/*.list; do
             [ -f "$f" ] || continue
             group=$(basename "$f" .list)
             echo "处理组: $group"
             total_group=$(wc -l < "$f" | tr -d ' ')
             echo "  总数: $total_group"
-
             sort -r -t"$SEP" -k1 "$f" > "$f.sorted"
-
             : > "$f.dedup"
             : > "$f.same_day_delete"
             awk -F"$SEP" -v SEP="$SEP" '
@@ -92,30 +80,22 @@ jobs:
                 }
               }
             ' "$f.sorted"
-
             dedup_count=$(wc -l < "$f.dedup" | tr -d ' ')
             same_day_del_count=$(wc -l < "$f.same_day_delete" 2>/dev/null || echo 0)
             echo "  同日去重后保留数(dedup): $dedup_count"
             echo "  同日旧文件待删数(same_day_delete): $same_day_del_count"
-
             head -n "$KEEP" "$f.dedup" > "$f.keep" || true
             tail -n +"$((KEEP+1))" "$f.dedup" > "$f.dedup_extra_delete" || true
-
             dedup_keep_count=$(wc -l < "$f.keep" 2>/dev/null || echo 0)
             dedup_extra_del_count=$(wc -l < "$f.dedup_extra_delete" 2>/dev/null || echo 0)
-
             cat "$f.same_day_delete" "$f.dedup_extra_delete" > "$f.delete"
-
             delete_count=$(wc -l < "$f.delete" 2>/dev/null || echo 0)
-
             echo "  保留数量 (keep): $dedup_keep_count"
             echo "  除保留外多余文件 (dedup_extra_delete): $dedup_extra_del_count"
             echo "  同日旧文件 + 超出版本限制 删除总数(delete): $delete_count"
-
             if [ "$delete_count" -gt 0 ]; then
               echo "  待删除列表："
               awk -F"$SEP" '{print "    " $3 " (createdAt: " $1 ")"}' "$f.delete"
-
               # 实际删除操作，测试时保持注释，确认无误后可解注释启用
               # while IFS="$SEP" read -r created id name; do
               #   echo "删除资产: $name (id: $id)"
@@ -124,36 +104,25 @@ jobs:
             else
               echo "  无需删除。"
             fi
-
-            printf "分组: %s | 总数=%s  | 有效数=%s | 保留=%s | 超时=%s | 日期重复=%s | 合计删除=%s\n" \
+            printf "分组: %s\n总数=%s  | 有效数=%s | 保留=%s | 超时=%s | 日期重复=%s | 合计删除=%s\n\n" \
               "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$dedup_extra_del_count" "$same_day_del_count" "$delete_count" >> "$summary"
-
             echo
           done
-
           echo "=== 清理汇总 ==="
           cat "$summary"
-
-          # 把 summary 内容输出到环境变量，给后续步骤使用（转义处理换行）
-          summary_content=$(sed ':a;N;$!ba;s/\n/\\n/g' "$summary")
-          echo "SUMMARY_CONTENT=$summary_content" >> "$GITHUB_OUTPUT"
-
+          # 把 summary 内容输出到环境变量，保留真实换行
+          summary_content=$(cat "$summary")
+          echo "SUMMARY_CONTENT<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$summary_content" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
       - name: Telegram 通知
         if: always()
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          RAW_MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
-
-          MSG="OpenWRT Matrix Backup 清理结果:\n"
-
-          while IFS= read -r line; do
-            group=$(echo "$line" | cut -d '|' -f1 | sed 's/分组: //g' | sed 's/ *$//g')
-            stats=$(echo "$line" | cut -d '|' -f2- | sed 's/^ *//g' | sed 's/|/ | /g')
-            MSG+=$(printf "分组: %s\n%s\n\n" "$group" "$stats")
-          done <<< "$(echo -e "$RAW_MSG" | sed 's/\\n/\n/g')"
-
+          MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
+          # MarkdownV2 转义函数，注意不转义换行符，保留换行
           escape_markdown_v2() {
             sed -e 's/\\/\\\\/g' \
                 -e 's/_/\\_/g' \
@@ -171,12 +140,12 @@ jobs:
                 -e 's/=/\\=/g' \
                 -e 's/{/\\{/g' \
                 -e 's/}/\\}/g' \
-                -e 's/!/\\!/g'
+                -e 's/!/\\!/g' \
+                -e 's/|/\\|/g' \
+                -e 's/\./\\./g'
           }
-
-          MSG_ESCAPED=$(echo -e "$MSG" | escape_markdown_v2)
-
+          MSG=$(echo "$MSG" | escape_markdown_v2)
           curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
-            -d text="$MSG_ESCAPED" \
+            -d text="OpenWRT Matrix Backup 清理结果:\n$MSG" \
             -d parse_mode="MarkdownV2"
