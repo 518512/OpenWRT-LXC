@@ -141,8 +141,8 @@ jobs:
       - name: Telegram 通知
         if: always()
         env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           # 读取前一步导出的 SUMMARY_CONTENT
           MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
