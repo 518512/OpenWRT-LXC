@@ -134,7 +134,7 @@ jobs:
           echo "=== 清理汇总 ==="
           cat "$summary"
 
-          # 把 summary 内容输出到环境变量，给后续步骤使用（转义换行）
+          # 把 summary 内容输出到环境变量，给后续步骤使用（转义处理换行）
           summary_content=$(sed ':a;N;$!ba;s/\n/\\n/g' "$summary")
           echo "SUMMARY_CONTENT=$summary_content" >> "$GITHUB_OUTPUT"
 
@@ -147,10 +147,7 @@ jobs:
           # 读取前一步导出的 SUMMARY_CONTENT
           MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
 
-          # 替换竖线，避免 TG 格式问题（可选）
-          MSG=$(echo "$MSG" | sed 's/|/｜/g')
-
-          # MarkdownV2 转义函数
+          # MarkdownV2 转义函数，包含所有特殊字符，确保 Telegram 消息格式正确
           escape_markdown_v2() {
             sed -e 's/\\/\\\\/g' \
                 -e 's/_/\\_/g' \
@@ -168,7 +165,9 @@ jobs:
                 -e 's/=/\\=/g' \
                 -e 's/{/\\{/g' \
                 -e 's/}/\\}/g' \
-                -e 's/!/\\!/g'
+                -e 's/!/\\!/g' \
+                -e 's/|/\\|/g' \
+                -e 's/\./\\./g'
           }
 
           MSG=$(echo "$MSG" | escape_markdown_v2)
