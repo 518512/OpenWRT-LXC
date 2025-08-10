@@ -169,7 +169,8 @@ jobs:
                 -e 's/=/\\=/g' \
                 -e 's/{/\\{/g' \
                 -e 's/}/\\}/g' \
-                -e 's/!/\\!/g'
+                -e 's/!/\\!/g' \
+                -e 's/\./\\./g'      # 新增这行，转义点号
           }
 
           MSG=$(echo "$MSG" | escape_markdown_v2)
