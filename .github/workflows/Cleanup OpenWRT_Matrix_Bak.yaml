@@ -125,7 +125,7 @@ jobs:
               echo "  无需删除。"
             fi
 
-            printf "分组: %s | 总数=%s  | 日期不重复数=%s | 保留=%s | 超时删除=%s | 日期重复删除=%s | 合计删除=%s\n" \
+            printf "分组: %s\n总数=%s  | 日期不重复数=%s | 保留=%s | 超时删除=%s | 日期重复删除=%s | 合计删除=%s\n\n" \
               "$group" "$total_group" "$dedup_count" "$dedup_keep_count" "$dedup_extra_del_count" "$same_day_del_count" "$delete_count" >> "$summary"
 
             echo
@@ -134,7 +134,7 @@ jobs:
           echo "=== 清理汇总 ==="
           cat "$summary"
 
-          # 把 summary 内容输出到环境变量，给后续步骤使用（保留换行，使用多行字符串格式）
+          # 把 summary 内容输出到环境变量，保留真实换行
           summary_content=$(cat "$summary")
           echo "SUMMARY_CONTENT<<EOF" >> "$GITHUB_OUTPUT"
           echo "$summary_content" >> "$GITHUB_OUTPUT"
@@ -148,7 +148,7 @@ jobs:
         run: |
           MSG="${{ steps.cleanup_step.outputs.SUMMARY_CONTENT }}"
 
-          # MarkdownV2 转义函数，转义特殊字符，包括竖线和点号
+          # MarkdownV2 转义函数，注意不转义换行符，保留换行
           escape_markdown_v2() {
             sed -e 's/\\/\\\\/g' \
                 -e 's/_/\\_/g' \
@@ -172,9 +172,6 @@ jobs:
           }
 
           MSG=$(echo "$MSG" | escape_markdown_v2)
-
-          MAX_LEN=1900
-          MSG=${MSG:0:$MAX_LEN}
 
           curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
